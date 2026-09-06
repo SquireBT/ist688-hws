@@ -2,7 +2,8 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 from openai import OpenAI
-import anthropic
+from google import genai
+from google.genai import types
 
 
 def read_url_content(url):
@@ -14,7 +15,6 @@ def read_url_content(url):
     except requests.RequestException as e:
         print(f"Error reading {url}: {e}")
         return None
-
 
 # Show title and description.
 st.title("HW2 - URL Summarizer")
@@ -32,10 +32,10 @@ summary_options = [
 summary_type = st.sidebar.selectbox("Type of summary", summary_options)
 
 output_language = st.sidebar.selectbox(
-    "Output language", ["English", "French", "Spanish", "German"]
+    "Output language", ["English", "French", "Spanish", "Japanese", "Windings", "Klingon"]
 )
 
-llm_choice = st.sidebar.selectbox("Which LLM?", ["OpenAI", "Anthropic"])
+llm_choice = st.sidebar.selectbox("Which LLM?", ["OpenAI", "Google Gemini"])
 
 use_advanced = st.sidebar.checkbox("Use advanced model")
 
@@ -43,9 +43,12 @@ use_advanced = st.sidebar.checkbox("Use advanced model")
 if llm_choice == "OpenAI":
     api_key = st.secrets.get("OPENAI_API_KEY", "")
     model = "gpt-5" if use_advanced else "gpt-5-nano"
+elif llm_choice == "Google Gemini":
+    api_key = st.secrets.get("GOOGLE_API_KEY", "")
+    model = "gemini-3.7-flash" if use_advanced else "gemini-3.6-flash"
 else:
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
-    model = "claude-sonnet-5" if use_advanced else "claude-haiku-4-5-20251001"
+    st.error(f"No model selected")
+
 
 if not api_key or api_key.startswith("sk-proj-REPLACE"):
     st.info(f"No {llm_choice} API key detected. Add your key to `.streamlit/secrets.toml`")
@@ -75,11 +78,19 @@ else:
                     stream=True,
                 )
                 st.write_stream(stream)
-            else:
-                client = anthropic.Anthropic(api_key=api_key)
-                with client.messages.stream(
+            #Models Tested: GPT-5 and GPT-5 Nano
+            #Both models took well over 30 seclonds to generate their answer.
+            #They struggled with translations into other languages, especially without context.
+            #The simpler model of nano sometimes took less time to generate the answer.
+            elif llm_choice == "Google Gemini":
+                client = genai.Client(api_key=api_key)
+                stream = client.models.generate_content_stream(
                     model=model,
-                    max_tokens=1024,
-                    messages=[{"role": "user", "content": prompt}],
-                ) as stream:
-                    st.write_stream(stream.text_stream)
+                    contents=prompt,
+                )
+                st.write_stream(chunk.text for chunk in stream if chunk.text)
+            #Models Tested: Gemini 3.6 and 3.7 flash.
+            #Flash was ultra efficient at getting an answer quickly to me. I only waited about 2 seconds.
+            #3.7 was noticibly faster but both models were a bit shallow in their responses.
+            else:
+                st.error(f"No model selected")
