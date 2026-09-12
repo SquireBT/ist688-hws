@@ -6,10 +6,10 @@ import requests
 # Show title and description.
 st.title("HW3 - URL Reader and Chatbot")
 
-st.write("This is a chatbot that can read and answer questions about the content of one or two URLs. I've designed it" \
-"to have a limited memory buffer of 6 messages or 3 user-agent " \
+st.write("This is a chatbot that can read and answer questions about the content of one or two URLs. " \
+"It was designed to have a limited memory buffer of 6 messages or 3 user-agent " \
 "exchanges, so it won't remember anything after 3 questions. " \
-"the chatbot will answer questions based on the content of the URLs provided, "\
+"This chatbot will answer questions based on the content of the URLs provided, "\
 "and will indicate which document it used to answer the question.")
 # ------------------------------------------------------------ sidebar: model selector
  
@@ -40,7 +40,7 @@ def read_url_content(url):
         response = requests.get(url)
         response.raise_for_status()  # Raise an exception for HTTP errors
         soup = BeautifulSoup(response.content, 'html.parser')
-        return soup.get_text()
+        return soup.get_text(separator=" ", strip=True)[:20000]
     except requests.RequestException as e:
         print(f"Error reading {url}: {e}")
         return None
@@ -69,11 +69,11 @@ BASE_PROMPT = (
 def build_system_prompt(docs):
     if not docs:
         return (
-            BASE_INSTRUCTIONS
+            BASE_PROMPT
             + "\n\nNo reference documents have been provided yet. Tell the user to add "
             "a URL in the sidebar before asking document questions."
         )
-    parts = [BASE_INSTRUCTIONS, "\n\nReference documents:"]
+    parts = [BASE_PROMPT, "\n\nReference documents:"]
     for label, url, content in docs:
         parts.append(f"\n=== {label} (source: {url}) ===\n{content}")
     return "\n".join(parts)
@@ -89,15 +89,7 @@ def message_buffer(messages, keep=MAX_TURNS):
         kept.pop(0)
     return kept
 
-
-buffer_type = st.sidebar.radio("Buffer type", ["Last 2 messages", "Token based"])
-max_tokens = st.sidebar.slider("max_tokens", 100, 4000, 500, 100,
-                               disabled=(buffer_type != "Token based"))
-
-if 'client' not in st.session_state:
-    api_key = st.secrets["OPENAI_API_KEY"]
-    st.session_state.client = OpenAI(api_key=api_key)
-
+# ------------------------------------------------------------ chat loop
 if "messages" not in st.session_state:
     st.session_state["messages"] = [{"role": "assistant", "content": "How can I help you?"}]
 
@@ -111,17 +103,9 @@ if prompt := st.chat_input("What is up?"):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    if buffer_type == "Last 2 messages":
-        context, total_tokens = message_buffer(st.session_state.messages)
-    else:
-        context, total_tokens = token_buffer(st.session_state.messages, max_tokens)
-    context = [{"role": "system", "content": SYSTEM_PROMPT}] + context
-    total_tokens += count_tokens(SYSTEM_PROMPT) + 4
-    st.sidebar.write(f"Messages sent: {len(context)} of {len(st.session_state.messages)}")
-    st.sidebar.write(f"Tokens sent: {total_tokens}")
-    client = st.session_state.client
+    context = [{"role": "system", "content": system_prompt}] + message_buffer(st.session_state.messages)
     stream = client.chat.completions.create(
-        model=model_to_use,
+        model=model,
         messages=context,
         stream=True)
 
